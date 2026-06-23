@@ -148,8 +148,8 @@ function CourtLines({ className = "", opacity = 1, color = "white" }) {
 const PAGE_BG = "linear-gradient(180deg, #04140f 0%, #062019 35%, #04130e 100%)";
 const HERO_BG = "linear-gradient(125deg, #053b2c 0%, #0a7a55 45%, #84cc16 130%)";
 const glass = "bg-white/[0.04] border border-white/10 backdrop-blur-md";
-const inputDark = "bg-white/5 text-white rounded-xl px-3 py-2.5 outline-none border border-white/15 focus:ring-2 focus:ring-lime-400/40 focus:border-lime-400/40 placeholder:text-slate-500";
-
+const inputDark = "rounded-xl px-3 py-2.5 outline-none border border-white/15 focus:ring-2 focus:ring-lime-400/40 focus:border-lime-400/40 placeholder:text-slate-500";
+const inputStyle = { backgroundColor: "#0c1f17", color: "#ffffff" };
 export default function App() {
   const [data, setData] = useState({ teams: [], encounters: [], groups: ["A", "B"], password: DEFAULT_PASSWORD, users: makeDefaultUsers() });
   const [loading, setLoading] = useState(true);
