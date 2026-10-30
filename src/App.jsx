@@ -148,8 +148,8 @@ function CourtLines({ className = "", opacity = 1, color = "white" }) {
 const PAGE_BG = "linear-gradient(180deg, #04140f 0%, #062019 35%, #04130e 100%)";
 const HERO_BG = "linear-gradient(125deg, #053b2c 0%, #0a7a55 45%, #84cc16 130%)";
 const glass = "bg-white/[0.04] border border-white/10 backdrop-blur-md";
-const inputDark = "rounded-xl px-3 py-2.5 outline-none border border-white/15 focus:ring-2 focus:ring-lime-400/40 focus:border-lime-400/40 placeholder:text-slate-500";
-const inputStyle = { backgroundColor: "#0c1f17", color: "#ffffff" };
+const inputDark = "bg-white/5 text-white rounded-xl px-3 py-2.5 outline-none border border-white/15 focus:ring-2 focus:ring-lime-400/40 focus:border-lime-400/40 placeholder:text-slate-500";
+
 export default function App() {
   const [data, setData] = useState({ teams: [], encounters: [], groups: ["A", "B"], password: DEFAULT_PASSWORD, users: makeDefaultUsers() });
   const [loading, setLoading] = useState(true);
@@ -216,6 +216,7 @@ export default function App() {
         .isbm-rise{ animation: isbmRise .5s ease both; }
         @keyframes isbmRise { from{ opacity:0; transform: translateY(10px) } to{ opacity:1; transform:none } }
         html,body,#root{ margin:0; background:#04130e; }
+        select option { background-color:#0c1f17; color:#ffffff; }
       `}</style>
 
       <CourtLines className="fixed inset-0 w-full h-full pointer-events-none" opacity={0.035} color="#7dd3a0" />
@@ -622,6 +623,7 @@ function SettingsAdmin({ data, persist, user, setUser, isAdmin }) {
   const [impMsg, setImpMsg] = useState("");
   const [impOk, setImpOk] = useState(false);
   const fileRef = useRef(null);
+  const [resetText, setResetText] = useState("");
 
   const saveOwnPw = () => {
     if (!pw.trim()) return;
@@ -665,6 +667,13 @@ function SettingsAdmin({ data, persist, user, setUser, isAdmin }) {
     ev.target.value = "";
   };
 
+  const resetAll = () => {
+    if (resetText !== "LÖSCHEN") return;
+    if (!confirm("Wirklich ALLE Teams und Begegnungen unwiderruflich löschen?")) return;
+    persist({ ...data, teams: [], encounters: [] });
+    setResetText("");
+  };
+
   return (
     <div className="space-y-4 max-w-sm">
       <Card className="p-5">
@@ -692,6 +701,14 @@ function SettingsAdmin({ data, persist, user, setUser, isAdmin }) {
           <input ref={fileRef} type="file" accept="application/json,.json" onChange={onFile} className="hidden" />
           {impMsg && <p className={`text-sm mt-3 flex items-center gap-1 ${impOk ? "text-lime-300" : "text-amber-300"}`}><AlertCircle size={14} /> {impMsg}</p>}
         </Card>
+      )}
+      {isAdmin && (
+        <div className="bg-rose-500/5 border border-rose-500/30 rounded-3xl shadow-2xl backdrop-blur-md p-5">
+          <h3 className="font-bold text-lg mb-1 flex items-center gap-2 text-rose-300"><AlertCircle size={18} /> Gefahrenzone</h3>
+          <p className="text-xs text-slate-400 mb-3">Löscht alle Teams und Begegnungen unwiderruflich. Benutzer und Gruppen bleiben erhalten. Lade vorher oben unbedingt eine Sicherung herunter!</p>
+          <input value={resetText} onChange={(e) => setResetText(e.target.value)} placeholder="Zum Bestätigen LÖSCHEN eintippen" className={`w-full mb-3 ${inputDark}`} />
+          <button disabled={resetText !== "LÖSCHEN"} onClick={resetAll} className="w-full bg-rose-500 hover:bg-rose-400 disabled:bg-white/10 disabled:text-slate-600 disabled:cursor-not-allowed text-white font-bold rounded-xl py-2.5 flex items-center justify-center gap-2"><Trash2 size={16} /> Alle Daten löschen</button>
+        </div>
       )}
     </div>
   );
