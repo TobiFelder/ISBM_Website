@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { Trophy, ListOrdered, ClipboardList, Lock, LogOut, Plus, Trash2, Pencil, X, Save, ChevronDown, ChevronUp, Users, ShieldCheck, Medal, AlertCircle, User, KeyRound, Download, Upload, DatabaseBackup } from "lucide-react";
-import { supabase } from "./supabase";
+import { Trophy, ListOrdered, ClipboardList, Lock, LogOut, Plus, Trash2, Pencil, X, Save, ChevronDown, ChevronUp, Users, ShieldCheck, Medal, AlertCircle, User, KeyRound, Download, Upload, DatabaseBackup, SlidersHorizontal } from "lucide-react";
 
-const ROW_ID = "isbm";
 const DEFAULT_PASSWORD = "isbm2026";
 
 const DISCIPLINES = [
@@ -14,10 +12,31 @@ const DISCIPLINES = [
 ];
 
 const emptyGames = () =>
-  DISCIPLINES.map((d) => ({ key: d.key, label: d.label, sets: [{ a: "", b: "" }, { a: "", b: "" }, { a: "", b: "" }] }));
+  DISCIPLINES.map((d) => ({ key: d.key, label: d.label, playersA: "", playersB: "", sets: [{ a: "", b: "" }, { a: "", b: "" }, { a: "", b: "" }] }));
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const num = (v) => { const n = parseInt(v, 10); return isNaN(n) ? 0 : n; };
+
+function makeDefaultUsers() { return [{ id: "admin0", username: "admin", password: DEFAULT_PASSWORD, role: "admin" }]; }
+
+function normalize(parsed) {
+  const n = { password: DEFAULT_PASSWORD, teams: [], encounters: [], groups: ["A", "B"], users: [], mode: "single", ...(parsed || {}) };
+  if (!n.users || n.users.length === 0) n.users = makeDefaultUsers();
+  if (n.mode !== "groups") n.mode = "single";
+  n.encounters = (n.encounters || []).map((e) => ({ ...e, games: (e.games || []).map((g) => ({ playersA: "", playersB: "", ...g })) }));
+  return n;
+}
+
+// ---- Speicher (Vercel / Upstash Redis via /api/data) ----
+async function apiLoad() {
+  const res = await fetch("/api/data", { cache: "no-store" });
+  if (!res.ok) throw new Error("load " + res.status);
+  return await res.json();
+}
+async function apiSave(data) {
+  const res = await fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+  if (!res.ok) throw new Error("save " + res.status);
+}
 
 function setStatus(s) {
   const ae = s.a === "" || s.a === undefined;
@@ -76,7 +95,7 @@ function computeEncounter(enc) {
 
 function computeStandings(teams, encounters) {
   const map = {};
-  teams.forEach((t) => { map[t.id] = { id: t.id, name: t.name, beg: 0, begWon: 0, spW: 0, spL: 0, saW: 0, saL: 0, puW: 0, puL: 0 }; });
+  teams.forEach((t) => { map[t.id] = { id: t.id, name: t.name, group: t.group, beg: 0, begWon: 0, spW: 0, spL: 0, saW: 0, saL: 0, puW: 0, puL: 0 }; });
   encounters.forEach((enc) => {
     const r = computeEncounter(enc);
     if (!r.gameResults.some((g) => g.played)) return;
@@ -113,10 +132,6 @@ function computeFinalRanking(teams, encounters) {
     .sort((a, b) => (a.place || 999) - (b.place || 999) || a.name.localeCompare(b.name));
 }
 
-function makeDefaultUsers() {
-  return [{ id: "admin0", username: "admin", password: DEFAULT_PASSWORD, role: "admin" }];
-}
-
 function Shuttle({ size = 24, className = "", style }) {
   return (
     <svg viewBox="0 0 64 64" width={size} height={size} className={className} style={style} fill="none">
@@ -151,7 +166,7 @@ const glass = "bg-white/[0.04] border border-white/10 backdrop-blur-md";
 const inputDark = "bg-white/5 text-white rounded-xl px-3 py-2.5 outline-none border border-white/15 focus:ring-2 focus:ring-lime-400/40 focus:border-lime-400/40 placeholder:text-slate-500";
 
 export default function App() {
-  const [data, setData] = useState({ teams: [], encounters: [], groups: ["A", "B"], password: DEFAULT_PASSWORD, users: makeDefaultUsers() });
+  const [data, setData] = useState(normalize(null));
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [view, setView] = useState("rangliste");
@@ -161,15 +176,9 @@ export default function App() {
     let cancelled = false;
     const load = async () => {
       try {
-        const { data: row, error } = await supabase.from("app_state").select("data").eq("id", ROW_ID).maybeSingle();
-        if (error) throw error;
+        const row = await apiLoad();
         if (!cancelled) {
-          if (row && row.data) {
-            const parsed = row.data;
-            const normalized = { password: DEFAULT_PASSWORD, teams: [], encounters: [], groups: ["A", "B"], users: [], ...parsed };
-            if (!normalized.users || normalized.users.length === 0) normalized.users = makeDefaultUsers();
-            setData(normalized);
-          }
+          if (row) setData(normalize(row));
           setLoadError(false);
         }
       } catch (e) {
@@ -188,13 +197,8 @@ export default function App() {
 
   const persist = async (next) => {
     setData(next);
-    try {
-      const { error } = await supabase.from("app_state").upsert({ id: ROW_ID, data: next, updated_at: new Date().toISOString() });
-      if (error) throw error;
-    } catch (e) {
-      console.error("Speichern fehlgeschlagen", e);
-      alert("Speichern fehlgeschlagen. Bitte Internetverbindung pruefen und erneut versuchen.");
-    }
+    try { await apiSave(next); }
+    catch (e) { console.error("Speichern fehlgeschlagen", e); alert("Speichern fehlgeschlagen. Bitte Internetverbindung pruefen und erneut versuchen."); }
   };
 
   if (loading) {
@@ -235,7 +239,7 @@ export default function App() {
                 <h1 className="text-2xl sm:text-4xl font-black leading-none tracking-tight text-white" style={{ textShadow: "0 2px 20px rgba(0,0,0,0.25)" }}>
                   ISBM <span className="text-lime-300">Badminton</span>
                 </h1>
-                <p className="text-emerald-50/80 text-xs sm:text-sm mt-1.5">Rangliste · Resultate · Endrunde</p>
+                <p className="text-emerald-50/80 text-xs sm:text-sm mt-1.5">Rangliste · Resultate</p>
               </div>
             </div>
             {user && (
@@ -266,7 +270,7 @@ export default function App() {
       <main className="max-w-4xl mx-auto px-4 py-7 relative isbm-rise">
         {loadError && (
           <div className="mb-4 bg-rose-500/15 border border-rose-500/30 text-rose-200 rounded-xl px-4 py-2.5 text-sm flex items-center gap-2">
-            <AlertCircle size={16} /> Verbindung zur Datenbank fehlgeschlagen. Bitte Seite neu laden oder die Supabase-Einstellungen pruefen.
+            <AlertCircle size={16} /> Verbindung zum Speicher fehlgeschlagen. Bitte Seite neu laden oder die Vercel-Einstellungen pruefen.
           </div>
         )}
         {view === "rangliste" && <Rangliste data={data} />}
@@ -302,9 +306,16 @@ function Card({ children, className = "" }) { return <div className={`${glass} r
 
 function Rangliste({ data }) {
   const [phase, setPhase] = useState("group");
+  const mode = data.mode || "single";
   const groups = data.groups || ["A", "B"];
-  const groupEncs = data.encounters.filter((e) => (e.phase || "group") === "group");
   if (data.teams.length === 0) return <EmptyState text="Noch keine Teams erfasst. Melde dich in der Verwaltung an, um Teams und Resultate einzutragen." />;
+
+  if (mode === "single") {
+    const standings = computeStandings(data.teams, data.encounters);
+    return <StandingsTable title="Rangliste" standings={standings} empty="Noch keine Teams." />;
+  }
+
+  const groupEncs = data.encounters.filter((e) => (e.phase || "group") === "group");
   return (
     <div>
       <div className={`flex gap-1 ${glass} rounded-2xl p-1 mb-5`}>
@@ -398,7 +409,7 @@ function FinalView({ data }) {
       </Card>
       <div>
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 px-1">Platzierungsspiele</h3>
-        {finals.length === 0 ? <p className="text-sm text-slate-500 px-1">Noch keine Endrunden-Begegnungen eingetragen.</p> : <EncounterList encounters={finals} teamName={teamName} />}
+        {finals.length === 0 ? <p className="text-sm text-slate-500 px-1">Noch keine Endrunden-Begegnungen eingetragen.</p> : <EncounterList encounters={finals} teamName={teamName} mode="groups" />}
       </div>
     </div>
   );
@@ -407,10 +418,10 @@ function FinalView({ data }) {
 function Resultate({ data }) {
   const teamName = (id) => data.teams.find((t) => t.id === id)?.name || "?";
   if (data.encounters.length === 0) return <EmptyState text="Noch keine Begegnungen eingetragen." />;
-  return <EncounterList encounters={data.encounters} teamName={teamName} />;
+  return <EncounterList encounters={data.encounters} teamName={teamName} mode={data.mode || "single"} />;
 }
 
-function EncounterList({ encounters, teamName }) {
+function EncounterList({ encounters, teamName, mode }) {
   const [open, setOpen] = useState(null);
   const sorted = [...encounters].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   return (
@@ -419,13 +430,14 @@ function EncounterList({ encounters, teamName }) {
         const r = computeEncounter(enc);
         const expanded = open === enc.id;
         const isFinal = enc.phase === "final";
+        const showTag = mode === "groups";
         const tag = isFinal ? (Array.isArray(enc.places) ? `Platz ${enc.places[0]}/${enc.places[1]}` : "Endrunde") : `Gruppe ${enc.group || "?"}`;
         return (
           <Card key={enc.id} className="overflow-hidden">
             <button onClick={() => setOpen(expanded ? null : enc.id)} className="w-full px-5 py-4 flex items-center gap-3 text-left hover:bg-white/[0.03] transition">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full border" style={isFinal ? { background: "rgba(245,158,11,0.12)", color: "#fcd34d", borderColor: "rgba(245,158,11,0.25)" } : { background: "rgba(163,230,53,0.12)", color: "#bef264", borderColor: "rgba(163,230,53,0.25)" }}>{tag}</span>
+                  {showTag && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full border" style={isFinal ? { background: "rgba(245,158,11,0.12)", color: "#fcd34d", borderColor: "rgba(245,158,11,0.25)" } : { background: "rgba(163,230,53,0.12)", color: "#bef264", borderColor: "rgba(163,230,53,0.25)" }}>{tag}</span>}
                   {enc.round && <span className="text-xs text-slate-500">{enc.round}</span>}
                 </div>
                 <div className="flex items-center gap-2 font-semibold text-[15px]">
@@ -447,8 +459,11 @@ function EncounterList({ encounters, teamName }) {
                 <table className="w-full text-sm">
                   <tbody>
                     {r.gameResults.map((g, i) => (
-                      <tr key={i} className="border-b border-white/[0.06] last:border-0">
-                        <td className="py-2.5 text-slate-300 w-40">{g.label}</td>
+                      <tr key={i} className="border-b border-white/[0.06] last:border-0 align-top">
+                        <td className="py-2.5 text-slate-300 w-44 pr-2">
+                          {g.label}
+                          {(g.playersA || g.playersB) && <div className="text-[11px] text-slate-500 mt-0.5">{g.playersA || "?"} <span className="text-slate-600">vs</span> {g.playersB || "?"}</div>}
+                        </td>
                         <td className="py-2.5">
                           <div className="flex gap-1.5 flex-wrap">
                             {g.sets.filter((s) => setStatus(s).state === "valid").map((s, j) => (
@@ -616,14 +631,15 @@ function UsersAdmin({ data, persist, currentUser }) {
 }
 
 function SettingsAdmin({ data, persist, user, setUser, isAdmin }) {
+  const mode = data.mode || "single";
   const [pw, setPw] = useState("");
   const [savedPw, setSavedPw] = useState(false);
   const [groupsText, setGroupsText] = useState((data.groups || ["A", "B"]).join(", "));
   const [savedGr, setSavedGr] = useState(false);
   const [impMsg, setImpMsg] = useState("");
   const [impOk, setImpOk] = useState(false);
-  const fileRef = useRef(null);
   const [resetText, setResetText] = useState("");
+  const fileRef = useRef(null);
 
   const saveOwnPw = () => {
     if (!pw.trim()) return;
@@ -657,9 +673,7 @@ function SettingsAdmin({ data, persist, user, setUser, isAdmin }) {
           setImpOk(false); setImpMsg("Ungültige Sicherungsdatei."); return;
         }
         if (!confirm("Aktuelle Daten durch die Sicherung ersetzen? Das kann nicht rückgängig gemacht werden.")) return;
-        const normalized = { password: DEFAULT_PASSWORD, teams: [], encounters: [], groups: ["A", "B"], users: [], ...parsed };
-        if (!normalized.users || normalized.users.length === 0) normalized.users = makeDefaultUsers();
-        persist(normalized);
+        persist(normalize(parsed));
         setImpOk(true); setImpMsg("Sicherung erfolgreich geladen.");
       } catch (e) { setImpOk(false); setImpMsg("Datei konnte nicht gelesen werden."); }
     };
@@ -676,13 +690,26 @@ function SettingsAdmin({ data, persist, user, setUser, isAdmin }) {
 
   return (
     <div className="space-y-4 max-w-sm">
+      {isAdmin && (
+        <Card className="p-5">
+          <h3 className="font-bold text-lg mb-1 flex items-center gap-2"><SlidersHorizontal size={18} className="text-lime-300" /> Turniermodus</h3>
+          <p className="text-xs text-slate-400 mb-3">Bestimmt, wie Rangliste und Begegnungen aufgebaut sind.</p>
+          <div className="flex gap-1 bg-black/30 rounded-xl p-1">
+            <Seg active={mode === "single"} onClick={() => persist({ ...data, mode: "single" })} label="Nur Gruppenspiele" />
+            <Seg active={mode === "groups"} onClick={() => persist({ ...data, mode: "groups" })} label="Gruppen & Endrunde" />
+          </div>
+          <p className="text-[11px] text-slate-500 mt-2">{mode === "single" ? "Eine gemeinsame Rangliste, keine Gruppen-Aufteilung, keine Endrunde." : "Teams in Gruppen aufgeteilt, mit Endrunde und Platzierungsspielen."}</p>
+        </Card>
+      )}
+
       <Card className="p-5">
         <h3 className="font-bold text-lg mb-1 flex items-center gap-2"><KeyRound size={18} className="text-lime-300" /> Mein Passwort</h3>
         <p className="text-xs text-slate-400 mb-3">Angemeldet als <span className="text-slate-200 font-medium">{user.username}</span></p>
         <input type="text" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="Neues Passwort" className={`w-full mb-3 ${inputDark}`} />
         <button onClick={saveOwnPw} className="w-full bg-lime-400 hover:bg-lime-300 text-emerald-950 font-bold rounded-xl py-2.5">{savedPw ? "Gespeichert ✓" : "Passwort ändern"}</button>
       </Card>
-      {isAdmin && (
+
+      {isAdmin && mode === "groups" && (
         <Card className="p-5">
           <h3 className="font-bold text-lg mb-2 flex items-center gap-2"><Users size={18} className="text-lime-300" /> Gruppen</h3>
           <p className="text-xs text-slate-400 mb-3">Gruppennamen mit Komma getrennt, z.B. A, B</p>
@@ -690,6 +717,7 @@ function SettingsAdmin({ data, persist, user, setUser, isAdmin }) {
           <button onClick={saveGroups} className="w-full bg-lime-400 hover:bg-lime-300 text-emerald-950 font-bold rounded-xl py-2.5">{savedGr ? "Gespeichert ✓" : "Speichern"}</button>
         </Card>
       )}
+
       {isAdmin && (
         <Card className="p-5">
           <h3 className="font-bold text-lg mb-1 flex items-center gap-2"><DatabaseBackup size={18} className="text-lime-300" /> Sicherung</h3>
@@ -702,6 +730,7 @@ function SettingsAdmin({ data, persist, user, setUser, isAdmin }) {
           {impMsg && <p className={`text-sm mt-3 flex items-center gap-1 ${impOk ? "text-lime-300" : "text-amber-300"}`}><AlertCircle size={14} /> {impMsg}</p>}
         </Card>
       )}
+
       {isAdmin && (
         <div className="bg-rose-500/5 border border-rose-500/30 rounded-3xl shadow-2xl backdrop-blur-md p-5">
           <h3 className="font-bold text-lg mb-1 flex items-center gap-2 text-rose-300"><AlertCircle size={18} /> Gefahrenzone</h3>
@@ -715,6 +744,7 @@ function SettingsAdmin({ data, persist, user, setUser, isAdmin }) {
 }
 
 function TeamsAdmin({ data, persist }) {
+  const mode = data.mode || "single";
   const groups = data.groups || ["A", "B"];
   const [name, setName] = useState("");
   const [grp, setGrp] = useState(groups[0]);
@@ -734,7 +764,9 @@ function TeamsAdmin({ data, persist }) {
       <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Users size={18} className="text-lime-300" /> Teams verwalten</h3>
       <div className="flex gap-2 mb-4 flex-wrap">
         <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} placeholder="Teamname" className={`flex-1 ${inputDark}`} style={{ minWidth: 140 }} />
-        <select value={grp} onChange={(e) => setGrp(e.target.value)} className={inputDark}>{groups.map((g) => <option key={g} value={g}>Gruppe {g}</option>)}</select>
+        {mode === "groups" && (
+          <select value={grp} onChange={(e) => setGrp(e.target.value)} className={inputDark}>{groups.map((g) => <option key={g} value={g}>Gruppe {g}</option>)}</select>
+        )}
         <button onClick={add} className="bg-lime-400 hover:bg-lime-300 text-emerald-950 rounded-xl px-4 flex items-center gap-1 font-bold"><Plus size={16} /> Hinzufügen</button>
       </div>
       <div className="space-y-2">
@@ -744,14 +776,16 @@ function TeamsAdmin({ data, persist }) {
             {editId === t.id ? (
               <>
                 <input value={editName} onChange={(e) => setEditName(e.target.value)} className={`flex-1 ${inputDark} py-1.5`} />
-                <select value={editGrp} onChange={(e) => setEditGrp(e.target.value)} className={`${inputDark} py-1.5`}>{groups.map((g) => <option key={g} value={g}>Gr. {g}</option>)}</select>
+                {mode === "groups" && (
+                  <select value={editGrp} onChange={(e) => setEditGrp(e.target.value)} className={`${inputDark} py-1.5`}>{groups.map((g) => <option key={g} value={g}>Gr. {g}</option>)}</select>
+                )}
                 <button onClick={saveEdit} className="text-lime-300 p-1"><Save size={16} /></button>
                 <button onClick={() => setEditId(null)} className="text-slate-400 p-1"><X size={16} /></button>
               </>
             ) : (
               <>
                 <span className="flex-1 font-semibold text-white">{t.name}</span>
-                <span className="text-[11px] font-medium bg-white/5 border border-white/10 text-slate-300 rounded-full px-2.5 py-0.5">Gruppe {t.group || "-"}</span>
+                {mode === "groups" && <span className="text-[11px] font-medium bg-white/5 border border-white/10 text-slate-300 rounded-full px-2.5 py-0.5">Gruppe {t.group || "-"}</span>}
                 <button onClick={() => { setEditId(t.id); setEditName(t.name); setEditGrp(t.group || groups[0]); }} className="text-slate-400 hover:text-lime-300 p-1"><Pencil size={15} /></button>
                 <button onClick={() => remove(t.id)} className="text-slate-400 hover:text-rose-400 p-1"><Trash2 size={15} /></button>
               </>
@@ -764,6 +798,7 @@ function TeamsAdmin({ data, persist }) {
 }
 
 function EncountersAdmin({ data, persist }) {
+  const mode = data.mode || "single";
   const [editing, setEditing] = useState(null);
   const groups = data.groups || ["A", "B"];
   const teamName = (id) => data.teams.find((t) => t.id === id)?.name || "?";
@@ -792,7 +827,7 @@ function EncountersAdmin({ data, persist }) {
             <div key={enc.id} className="bg-white/[0.03] border border-white/10 rounded-2xl px-4 py-3 flex items-center gap-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={isFinal ? { background: "rgba(245,158,11,0.12)", color: "#fcd34d" } : { background: "rgba(163,230,53,0.12)", color: "#bef264" }}>{tag}</span>
+                  {mode === "groups" && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={isFinal ? { background: "rgba(245,158,11,0.12)", color: "#fcd34d" } : { background: "rgba(163,230,53,0.12)", color: "#bef264" }}>{tag}</span>}
                   <span className="font-semibold text-white truncate">{teamName(enc.teamAId)} <span className="text-slate-600">vs</span> {teamName(enc.teamBId)}</span>
                 </div>
                 <div className="text-xs text-slate-500 mt-0.5">{enc.round}{enc.date ? ` · ${enc.date}` : ""}</div>
@@ -809,6 +844,7 @@ function EncountersAdmin({ data, persist }) {
 }
 
 function EncounterEditor({ enc, data, onSave, onCancel }) {
+  const mode = data.mode || "single";
   const [e, setE] = useState(enc);
   const groups = data.groups || ["A", "B"];
   const placeOptions = [];
@@ -831,13 +867,17 @@ function EncounterEditor({ enc, data, onSave, onCancel }) {
       return { ...prev, games };
     });
   };
+  const setPlayers = (gi, key, val) => setE((prev) => ({ ...prev, games: prev.games.map((g, i) => (i === gi ? { ...g, [key]: val } : g)) }));
   const setGameLabel = (gi, label) => setE((prev) => ({ ...prev, games: prev.games.map((g, i) => (i === gi ? { ...g, label } : g)) }));
 
-  const selectableTeams = e.phase === "final" ? data.teams : data.teams.filter((t) => (t.group || groups[0]) === e.group);
+  const inGroups = mode === "groups";
+  const selectableTeams = (inGroups && e.phase !== "final") ? data.teams.filter((t) => (t.group || groups[0]) === e.group) : data.teams;
   const teamsValid = e.teamAId && e.teamBId && e.teamAId !== e.teamBId;
   const setsValid = e.games.every(gameValid);
   const valid = teamsValid && setsValid;
   const r = computeEncounter(e);
+  const nameA = data.teams.find((t) => t.id === e.teamAId)?.name;
+  const nameB = data.teams.find((t) => t.id === e.teamBId)?.name;
 
   return (
     <Card className="p-5">
@@ -846,18 +886,21 @@ function EncounterEditor({ enc, data, onSave, onCancel }) {
         <button onClick={onCancel} className="text-slate-400 hover:text-white"><X size={20} /></button>
       </div>
 
-      <div className="flex gap-1 bg-black/30 rounded-xl p-1 mb-4">
-        <Seg active={e.phase === "group"} onClick={() => setPhase("group")} label="Gruppenphase" />
-        <Seg active={e.phase === "final"} onClick={() => setPhase("final")} label="Endrunde" />
-      </div>
+      {inGroups && (
+        <div className="flex gap-1 bg-black/30 rounded-xl p-1 mb-4">
+          <Seg active={e.phase === "group"} onClick={() => setPhase("group")} label="Gruppenphase" />
+          <Seg active={e.phase === "final"} onClick={() => setPhase("final")} label="Endrunde" />
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 mb-4">
-        {e.phase === "group" ? (
+        {inGroups && e.phase === "group" && (
           <div>
             <label className="text-xs text-slate-400 mb-1 block">Gruppe</label>
             <select value={e.group} onChange={(ev) => setE((prev) => ({ ...prev, group: ev.target.value, teamAId: "", teamBId: "" }))} className={`w-full ${inputDark}`}>{groups.map((g) => <option key={g} value={g}>Gruppe {g}</option>)}</select>
           </div>
-        ) : (
+        )}
+        {inGroups && e.phase === "final" && (
           <div>
             <label className="text-xs text-slate-400 mb-1 block">Spiel um Platz</label>
             <select value={(e.places || placeOptions[0]).join("/")} onChange={(ev) => { const [a, b] = ev.target.value.split("/").map(Number); setField("places", [a, b]); }} className={`w-full ${inputDark}`}>{placeOptions.map((p) => <option key={p.join("/")} value={p.join("/")}>Platz {p[0]} / {p[1]}</option>)}</select>
@@ -889,39 +932,47 @@ function EncounterEditor({ enc, data, onSave, onCancel }) {
 
       {!teamsValid && <p className="text-sm text-rose-400 mb-3 flex items-center gap-1"><AlertCircle size={14} /> Bitte zwei unterschiedliche Teams wählen.</p>}
 
-      <div className="bg-black/20 rounded-2xl p-3 space-y-2.5 border border-white/10">
-        <div className="grid grid-cols-12 gap-2 text-[11px] uppercase tracking-wider text-slate-500 font-semibold px-1">
-          <div className="col-span-4">Disziplin</div><div className="col-span-2 text-center">Satz 1</div><div className="col-span-2 text-center">Satz 2</div><div className="col-span-2 text-center">Satz 3</div><div className="col-span-2 text-center">Sätze</div>
-        </div>
+      <div className="space-y-3">
         {e.games.map((g, gi) => {
           const gr = r.gameResults[gi];
           const disc = DISCIPLINES[gi];
           const enabled = gameSetEnabled(g);
           return (
-            <div key={gi} className="grid grid-cols-12 gap-2 items-center">
-              <div className="col-span-4">
-                {disc.alt ? (
-                  <select value={g.label} onChange={(ev) => setGameLabel(gi, ev.target.value)} className={`w-full text-sm py-1.5 ${inputDark}`}>
-                    <option value={disc.label}>{disc.label}</option>
-                    <option value={disc.alt}>{disc.alt}</option>
-                  </select>
-                ) : <span className="text-sm font-medium text-slate-200">{g.label}</span>}
+            <div key={gi} className="rounded-2xl border border-white/10 bg-white/[0.02] p-3">
+              <div className="flex items-center justify-between gap-2 mb-2.5">
+                <div className="flex-1 min-w-0">
+                  {disc.alt ? (
+                    <select value={g.label} onChange={(ev) => setGameLabel(gi, ev.target.value)} className={`w-full text-sm py-1.5 ${inputDark}`}>
+                      <option value={disc.label}>{disc.label}</option>
+                      <option value={disc.alt}>{disc.alt}</option>
+                    </select>
+                  ) : <span className="text-sm font-bold text-white">{g.label}</span>}
+                </div>
+                <div className="text-sm font-bold tabular-nums shrink-0">
+                  {gr.played ? <span className={gr.winner === "a" ? "text-lime-300" : gr.winner === "b" ? "text-rose-400" : "text-slate-500"}>{gr.gaSets}:{gr.gbSets}</span> : <span className="text-slate-700">–</span>}
+                </div>
               </div>
-              {[0, 1, 2].map((si) => {
-                const st = setStatus(g.sets[si]);
-                const isEnabled = enabled[si];
-                const bad = st.state === "invalid" || st.state === "incomplete";
-                const cls = `w-9 text-center rounded-lg px-1 py-1.5 text-sm outline-none border focus:ring-2 ${!isEnabled ? "bg-black/30 border-white/5 text-slate-700 cursor-not-allowed" : bad ? "border-rose-500/60 focus:ring-rose-500/30 bg-rose-500/10 text-rose-200" : "bg-white/5 border-white/15 text-white focus:ring-lime-400/40 focus:border-lime-400/40"}`;
-                return (
-                  <div key={si} className="col-span-2 flex items-center gap-1 justify-center">
-                    <input value={g.sets[si].a} disabled={!isEnabled} onChange={(ev) => setSet(gi, si, "a", ev.target.value)} inputMode="numeric" className={cls} />
-                    <span className="text-slate-600 text-xs">-</span>
-                    <input value={g.sets[si].b} disabled={!isEnabled} onChange={(ev) => setSet(gi, si, "b", ev.target.value)} inputMode="numeric" className={cls} />
-                  </div>
-                );
-              })}
-              <div className="col-span-2 text-center text-sm font-bold tabular-nums">
-                {gr.played ? <span className={gr.winner === "a" ? "text-lime-300" : gr.winner === "b" ? "text-rose-400" : "text-slate-500"}>{gr.gaSets}:{gr.gbSets}</span> : <span className="text-slate-700">-</span>}
+
+              <div className="grid grid-cols-2 gap-2 mb-2.5">
+                <input value={g.playersA} onChange={(ev) => setPlayers(gi, "playersA", ev.target.value)} placeholder={nameA ? `Spieler ${nameA}` : "Spieler Team A"} className={`${inputDark} py-1.5 text-sm`} />
+                <input value={g.playersB} onChange={(ev) => setPlayers(gi, "playersB", ev.target.value)} placeholder={nameB ? `Spieler ${nameB}` : "Spieler Team B"} className={`${inputDark} py-1.5 text-sm`} />
+              </div>
+
+              <div className="flex items-center gap-3 flex-wrap">
+                {[0, 1, 2].map((si) => {
+                  const st = setStatus(g.sets[si]);
+                  const isEnabled = enabled[si];
+                  const bad = st.state === "invalid" || st.state === "incomplete";
+                  const cls = `w-10 text-center rounded-lg px-1 py-1.5 text-sm outline-none border focus:ring-2 ${!isEnabled ? "bg-black/30 border-white/5 text-slate-700 cursor-not-allowed" : bad ? "border-rose-500/60 focus:ring-rose-500/30 bg-rose-500/10 text-rose-200" : "bg-white/5 border-white/15 text-white focus:ring-lime-400/40 focus:border-lime-400/40"}`;
+                  return (
+                    <div key={si} className="flex items-center gap-1">
+                      <span className="text-[10px] uppercase text-slate-600 mr-0.5">S{si + 1}</span>
+                      <input value={g.sets[si].a} disabled={!isEnabled} onChange={(ev) => setSet(gi, si, "a", ev.target.value)} inputMode="numeric" className={cls} />
+                      <span className="text-slate-600 text-xs">-</span>
+                      <input value={g.sets[si].b} disabled={!isEnabled} onChange={(ev) => setSet(gi, si, "b", ev.target.value)} inputMode="numeric" className={cls} />
+                    </div>
+                  );
+                })}
               </div>
             </div>
           );
