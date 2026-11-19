@@ -47,9 +47,8 @@ function setStatus(s) {
   if (x === y) return { state: "invalid", winner: null };
   const w = Math.max(x, y), l = Math.min(x, y);
   let ok = false;
-  if (w === 21 && l <= 19) ok = true;
-  else if (w >= 22 && w <= 29 && w - l === 2) ok = true;
-  else if (w === 30 && (l === 28 || l === 29)) ok = true;
+  if (w === 15 && l <= 13) ok = true;
+  else if (w >= 16 && w - l === 2) ok = true;
   return { state: ok ? "valid" : "invalid", winner: ok ? (x > y ? "a" : "b") : null };
 }
 
@@ -980,7 +979,7 @@ function EncounterEditor({ enc, data, onSave, onCancel }) {
       </div>
 
       {!setsValid && (
-        <p className="text-sm text-rose-400 mt-3 flex items-start gap-1.5"><AlertCircle size={15} className="mt-0.5 shrink-0" /> Ungültiges Satzergebnis. Ein Satz endet bei 21 mit 2 Punkten Vorsprung (Verlängerung exakt 2 Differenz, max. 30:29).</p>
+        <p className="text-sm text-rose-400 mt-3 flex items-start gap-1.5"><AlertCircle size={15} className="mt-0.5 shrink-0" /> Ungültiges Satzergebnis. Ein Satz endet bei 15 mit 2 Punkten Vorsprung (Verlängerung exakt 2 Differenz).</p>
       )}
 
       <div className="mt-4 p-4 rounded-2xl text-center border border-white/10" style={{ background: "rgba(163,230,53,0.06)" }}>
